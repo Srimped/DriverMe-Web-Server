@@ -4,7 +4,10 @@ import cors from 'cors'
 
 const app = express()
 
-app.use(cors())
+app
+  .use(express.json())
+  .use(express.urlencoded({ extended: true }))
+  .use(cors())
 
 //server home
 app.get('/', (req, res) => {
@@ -14,7 +17,7 @@ app.get('/', (req, res) => {
 
 
 //User API
-//GET
+//GET all user
 app.get('/api/user', (req, res) => {
     res.set('content-type', 'application/json');
 
@@ -45,31 +48,82 @@ app.get('/api/user', (req, res) => {
         res.send(content);
     });
 });
+
+//GET selected user by id
+app.get('/api/user/:id', (req, res) => {
+    res.set('content-type', 'application/json');
+    
+    const userId = req.params.id;
+
+    const SQL = 'SELECT * FROM users WHERE id = ?';
+    
+    const params = [userId];
+
+    DB.get(SQL, params, (err, row) => {
+        if (err) {
+            console.error(`Database Error: ${err.message}`);
+            // 500 Internal Server Error for database issues
+            return res.status(500).send(JSON.stringify({ 
+                code: 500, 
+                status: `Database error during query: ${err.message}` 
+            }));
+        }
+
+        if (!row) {
+            // 404 Not Found if no user with that ID exists
+            return res.status(404).send(JSON.stringify({
+                code: 404,
+                status: `User with id ${userId} not found`
+            }));
+        }
+
+        // 4. Format the result and send the successful response (200 OK)
+        let data = { 
+            user: {
+                id: row.id,
+                email: row.email,
+                password: row.password,
+                name: row.full_name,
+                phone: row.phone,
+                avatar: row.avatar_url,
+                role: row.role,
+                active: row.is_active,
+                verified: row.is_verified,
+                rating: row.rating,
+                total: row.total,
+            }
+        };
+
+        let content = JSON.stringify(data);
+        res.status(200).send(content);
+    });
+});
+
+
 //POST
 // app.post('/api/user', (req, res) => {
 
 // })
 //PUT
-app.put('/api/user', (req, res) => {
-    // Set the response content type to JSON
+app.put('/api/user/:id', (req, res) => {
     res.set('content-type', 'application/json');
 
-    // Extract user data, including the necessary 'id' for the WHERE clause, from the request body
-    // Based on the 'users' table schema, we can update these fields: full_name, phone, avatar_url, is_active, is_verified, rating, total_trips
-    const { 
-        id, 
-        email, 
-        full_name, 
-        phone, 
-        avatar_url, 
-        is_active, 
-        is_verified, 
-        rating, 
-        total_trips 
+    const {
+        id,
+        email,
+        full_name,
+        phone,
+        avatar_url,
+        is_active,
+        is_verified,
+        rating,
+        total_trips
     } = req.body;
 
-    // A complete update statement targeting the user by their ID
-    // We update the updated_at column to reflect the change
+    if (!id) {
+        return res.status(400).json({ message: "Missing ID in request body" });
+    }
+
     const SQL = `
         UPDATE users
         SET email = ?,
@@ -84,72 +138,62 @@ app.put('/api/user', (req, res) => {
         WHERE id = ?;
     `;
 
-    // The parameters array for the SQL statement (order matters!)
     const params = [
-        email, 
-        full_name, 
-        phone, 
-        avatar_url, 
-        is_active, 
-        is_verified, 
-        rating, 
-        total_trips, 
+        email,
+        full_name,
+        phone,
+        avatar_url,
+        is_active,
+        is_verified,
+        rating,
+        total_trips,
         id
     ];
 
-    try {
-        // Use DB.run() for operations that modify the database (UPDATE, INSERT, DELETE)
-        DB.run(SQL, params, err => {
-            if (err) {
-                console.log(`Database Error on update: ${err.message}`);
-                return res.status(500).send(`{"code":500, "status":"Database Error: ${err.message}"}`);
-            }
+    DB.run(SQL, params, function (err) {
+        if (err) {
+            console.log("DB ERROR:", err);
+            return res.status(500).json({ message: err.message });
+        }
 
-            // 'this.changes' is the number of rows updated
-            if (this.changes > 0) {
-                // Success: 200 OK
-                const content = JSON.stringify({
-                    id: id,
-                    status: "User data updated successfully",
-                    changes: this.changes
-                });
-                res.status(200).send(content);
-            } else {
-                // If no rows were changed, the ID likely doesn't exist
-                res.status(404).send('{"code":404, "status":"User not found or no change in data"}');
-            }
-        });
-    } catch (err) {
-        console.log(`Catch Block Error: ${err.message}`);
-        // Use standard 500 Internal Server Error for unexpected errors
-        res.status(500).send(`{"code":500, "status":"Server Error: ${err.message}"}`);
-    }
+        if (this.changes > 0) {
+            return res.status(200).json({
+                id,
+                message: "User data updated successfully"
+            });
+        } else {
+            return res.status(404).json({ message: "User not found" });
+        }
+    });
 });
-//DELETE
-app.delete('/api/user', (req, res) => {
- res.set('content-type', 'application/json')
-  const SQL = 'DELETE FROM users WHERE id=?'
 
-  try{
-    DB.run(SQL, [req.query.id], (err) => {
-      if(err) {
-        throw err
-      }
-      if (this.changes === 1) {
-        res.status(200)
-        res.send(`{"message": "User ${req.query.id} was removed from list"}`)
-      }
-      else {
-        res.status(200)
-        res.send(`{"message": "No operation needed"}`)
-      }
-    })
-  }catch(err){
-    console.log(err.message)
-    res.status(468)
-    res.send(`{"code":468, "status":"${err.message}"}`)
-  }
-})
+
+//DELETE
+app.delete('/api/user/:id', (req, res) => {
+    const userId = req.params.id;
+
+    const SQL = `
+        DELETE FROM users
+        WHERE id = ?
+    `;
+
+    DB.run(SQL, [userId], function (err) {
+        if (err) {
+            console.log("DB ERROR:", err.message);
+            return res.status(500).json({ message: "Database error: " + err.message });
+        }
+
+        if (this.changes > 0) {
+            return res.status(200).json({ 
+                message: "User deleted successfully", 
+                deletedId: userId 
+            });
+        }
+
+        return res.status(404).json({ message: "User not found" });
+    });
+});
+
 
 
 
